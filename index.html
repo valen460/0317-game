@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>03:17 — Tu n'es pas seul</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Rajdhani:wght@400;600;700&display=swap');
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #050609;
+      color: #eee;
+      font-family: Rajdhani, Arial, sans-serif;
+    }
+    #game { width: 100vw; height: 100vh; display: block; }
+    #overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      text-align: center;
+      background: radial-gradient(ellipse at center, #211c20 0%, #09090d 65%, #000 100%);
+    }
+    #panel { max-width: 700px; }
+    h1 {
+      margin: 0 0 12px;
+      color: #f0e9e9;
+      font: 700 clamp(42px, 9vw, 90px) Orbitron, sans-serif;
+      letter-spacing: .12em;
+      text-shadow: 0 0 24px #a20d19;
+    }
+    #subtitle { color: #c4b8b8; letter-spacing: .25em; }
+    #introText { min-height: 60px; color: #ddd; font-size: 21px; }
+    button {
+      padding: 14px 32px;
+      border: 1px solid #ff4655;
+      background: linear-gradient(135deg, #920c1a, #30070b);
+      color: white;
+      cursor: pointer;
+      font: 600 15px Orbitron, sans-serif;
+      letter-spacing: .12em;
+    }
+    #hud {
+      position: fixed;
+      inset: 0;
+      z-index: 2;
+      pointer-events: none;
+    }
+    #status {
+      position: absolute;
+      top: 18px;
+      left: 18px;
+      padding: 10px 14px;
+      border-left: 3px solid #c52230;
+      background: #050609bb;
+      line-height: 1.5;
+      font-size: 17px;
+    }
+    #crosshair {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      color: #fff;
+      font-size: 23px;
+      transform: translate(-50%, -50%);
+      text-shadow: 0 0 8px #fff;
+    }
+    #message {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 13%;
+      text-align: center;
+      color: #fff;
+      font-size: 22px;
+      letter-spacing: .08em;
+      text-shadow: 0 0 12px #a20d19;
+    }
+    #help {
+      position: absolute;
+      left: 18px;
+      bottom: 14px;
+      color: #c6c3c3;
+      font-size: 15px;
+    }
+    #shade {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      pointer-events: none;
+      background: radial-gradient(ellipse, transparent 35%, #0008 78%, #000e 100%);
+    }
+  </style>
+</head>
+<body>
+  <div id="overlay">
+    <div id="panel">
+      <h1>03:17</h1>
+      <p id="subtitle">TU N'ES PAS SEUL · HÔPITAL SAINT-MARC</p>
+      <p id="introText">Tu te réveilles dans une chambre vide. L'horloge indique 03:17.</p>
+      <button id="play">COMMENCER</button>
+    </div>
+  </div>
+
+  <canvas id="game"></canvas>
+  <div id="shade"></div>
+
+  <div id="hud">
+    <div id="status">
+      <div>HEURE : 03:17</div>
+      <div id="battery">LAMPE : 100%</div>
+      <div id="objective">OBJECTIF : Trouver la clé de sortie.</div>
+    </div>
+    <div id="crosshair">+</div>
+    <div id="message">Trouve la clé. Ne fais pas de bruit.</div>
+    <div id="help">ZQSD / WASD : bouger · Souris : regarder · E : interagir · F : lampe</div>
+  </div>
+
+  <script>
+    (() => {
+      const overlay = document.querySelector("#overlay");
+      const playButton = document.querySelector("#play");
+      const message = document.querySelector("#message");
+      const objective = document.querySelector("#objective");
+      const batteryLabel = document.querySelector("#battery");
+
+      if (!window.THREE) {
+        document.querySelector("#introText").textContent =
+          "Impossible de charger Three.js. Vérifie ta connexion Internet.";
+        playButton.style.display = "none";
+        return;
+      }
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x08090c);
+      scene.fog = new THREE.FogExp2(0x08090c, 0.027);
+
+      const camera = new THREE.PerspectiveCamera(74, innerWidth / innerHeight, 0.1, 100);
+      camera.position.set(0, 1.65, 18);
+
+      const renderer = new THREE.WebGLRenderer({
+        canvas: document.querySelector("#game"),
+        antialias: true
+      });
+      renderer.setSize(innerWidth, innerHeight);
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.1;
+
+      const mat = (color, roughness = 0.9, metalness = 0) =>
+        new THREE.MeshStandardMaterial({ color, roughness, metalness });
+
+      const wallMat = mat(0x55545a);
+      const floorMat = mat(0x34363a);
+      const ceilingMat = mat(0x202126);
+      const metalMat = mat(0x51545a, 0.48, 0.45);
+      const furnitureMat = mat(0x4a4543);
+      const doorMat = mat(0x382d2b);
+
+      function addBox(x, y, z, w, h, d, material, castShadow = true) {
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+        mesh.position.set(x, y, z);
+        mesh.castShadow = castShadow;
+        mesh.receiveShadow = true;
+        scene.add(mesh);
+        return mesh;
+      }
+
+      // Couloir principal
+      addBox(0, -0.15, 0, 12, 0.3, 50, floorMat);
+      addBox(0, 4.1, 0, 12, 0.3, 50, ceilingMat);
+      addBox(-6, 2, 0, 0.3, 4, 50, wallMat);
+      addBox(6, 2, 0, 0.3, 4, 50, wallMat);
+
+      // Mur du fond avec ouverture et porte de sortie
+      addBox(-4.65, 2, -24.9, 2.7, 4, 0.35, wallMat);
+      addBox(4.65, 2, -24.9, 2.7, 4, 0.35, wallMat);
+      addBox(0, 3.55, -24.9, 6.6, 0.9, 0.35, wallMat);
+
+      const exitDoor = addBox(0, 1.45, -24.65, 2.5, 2.9, 0.18, doorMat);
+      addBox(-1.05, 1.4, -24.52, 0.08, 0.08, 0.05, mat(0xb39455, 0.3, 0.6));
+
+      // Carrelage et repères au sol
+      for (let z = -23; z <= 23; z += 2) {
+        addBox(0, 0.012, z, 11.8, 0.018, 0.025, metalMat, false);
+      }
+      for (let x = -5; x <= 5; x += 2) {
+        addBox(x, 0.013, 0, 0.025, 0.018, 49, metalMat, false);
+      }
+
+      // Chambres ouvertes sur le couloir et éléments de décor
+      for (const z of [-14, -5, 4, 13]) {
+        // Encadrement de portes latérales
+        addBox(-5.72, 1.65, z, 0.15, 3.3, 2.5, doorMat);
+        addBox(5.72, 1.65, z, 0.15, 3.3, 2.5, doorMat);
+
+        // Lits, matelas et tables
+        addBox(-3.65, 0.48, z, 2.1, 0.18, 3, metalMat);
+        addBox(-3.65, 0.62, z, 1.9, 0.16, 2.6, mat(0x777477));
+        addBox(-3.65, 0.8, z - 1.1, 1.95, 0.2, 0.45, mat(0xb7b2aa));
+        addBox(3.9, 0.65, z + 1.5, 1.2, 1.3, 1.2, furnitureMat);
+        addBox(3.9, 1.35, z + 1.5, 1.25, 0.08, 1.25, metalMat);
+      }
+
+      // Tuyaux au plafond
+      for (let x = -4; x <= 4; x += 2) {
+        const pipe = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.06, 0.06, 48, 10),
+          metalMat
+        );
+        pipe.rotation.x = Math.PI / 2;
+        pipe.position.set(x, 3.72, 0);
+        pipe.castShadow = true;
+        scene.add(pipe);
+      }
+
+      // Éclairage d'ambiance et lampes vacillantes
+      scene.add(new THREE.HemisphereLight(0x7d8490, 0x171719, 0.38));
+
+      const emergencyLight = new THREE.PointLight(0xb51d25, 2.1, 16);
+      emergencyLight.position.set(0, 3, -11);
+      scene.add(emergencyLight);
+
+      const lamps = [];
+      for (const z of [-20, -12, -4, 4, 12, 20]) {
+        const light = new THREE.PointLight(0xc4c9d2, 0.85, 10);
+        light.position.set(0, 3.65, z);
+        scene.add(light);
+        lamps.push(light);
+        addBox(0, 3.85, z, 1.5, 0.08, 0.5, mat(0x9a9da0), false);
+      }
+
+      // Lampe torche attachée à la caméra
+      const flashlight = new THREE.SpotLight(0xe8edff, 5, 28, Math.PI / 7, 0.45, 1.4);
+      flashlight.position.set(0, 0, 0);
+      flashlight.target.position.set(0, 0, -1);
+      flashlight.castShadow = true;
+      camera.add(flashlight);
+      camera.add(flashlight.target);
+      scene.add(camera);
+
+      // Clé brillante à récupérer
+      const key = new THREE.Group();
+      const keyRing = new THREE.Mesh(
+        new THREE.TorusGeometry(0.13, 0.035, 8, 18),
+        new THREE.MeshStandardMaterial({
+          color: 0xd7b86d,
+          metalness: 0.8,
+          roughness: 0.25,
+          emissive: 0x332000
+        })
+      );
+      keyRing.position.x = -0.12;
+      key.add(keyRing);
+      const keyStem = new THREE.Mesh(
+        new THREE.BoxGeometry(0.42, 0.055, 0.055),
+        mat(0xd7b86d, 0.25, 0.8)
+      );
+      keyStem.position.x = 0.15;
+      key.add(keyStem);
+      key.position.set(-3.6, 0.95, 13);
+      scene.add(key);
+
+      // Monstre : silhouette simplifiée, activée après la récupération de la clé
+      const monster = new THREE.Group();
+      const monsterMat = new THREE.MeshStandardMaterial({
+        color: 0x08090a,
+        roughness: 1,
+        emissive: 0x050000
+      });
+      const torso = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.26, 0.43, 1.35, 10),
+        monsterMat
+      );
+      torso.position.y = 1.12;
+      monster.add(torso);
+
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.31, 14, 14), monsterMat);
+      head.position.y = 2.05;
+      monster.add(head);
+
+      for (const x of [-0.12, 0.12]) {
+        const eye = new THREE.Mesh(
+          new THREE.SphereGeometry(0.045, 8, 8),
+          new THREE.MeshBasicMaterial({ color: 0xff1525 })
+        );
+        eye.position.set(x, 2.07, -0.27);
+        monster.add(eye);
+      }
+
+      for (const x of [-0.32, 0.32]) {
+        const arm = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.07, 0.11, 1.2, 8),
+          monsterMat
+        );
+        arm.position.set(x, 1.12, 0);
+        arm.rotation.z = x * 1.4;
+        monster.add(arm);
+      }
+
+      monster.position.set(0, 0, -17);
+      monster.visible = false;
+      scene.add(monster);
+
+      const keys = {};
+      let started = false;
+      let hasKey = false;
+      let lampOn = true;
+      let battery = 100;
+      let yaw = 0;
+      let pitch = 0;
+      let elapsed = 0;
+      let won = false;
+      let lost = false;
+
+      // Charger la position sauvegardée si disponible
+      try {
+        const save = JSON.parse(localStorage.getItem("0317-prototype"));
+        if (save && Number.isFinite(save.x) && Number.isFinite(save.z)) {
+          camera.position.set(save.x, 1.65, save.z);
+          hasKey = save.hasKey === true;
+          if (hasKey) {
+            key.visible = false;
+            monster.visible = true;
+            objective.textContent = "OBJECTIF : Rejoindre la porte de sortie.";
+          }
+        }
+      } catch (_) {}
+
+      function showMessage(text, duration = 2200) {
+        message.textContent = text;
+        window.clearTimeout(showMessage.timer);
+        showMessage.timer = window.setTimeout(() => {
+          if (!won && !lost) message.textContent = "Trouve la sortie. Ne fais pas de bruit.";
+        }, duration);
+      }
+
+      function nearestInteractable() {
+        const player = camera.position;
+        const keyDistance = key.visible
+          ? player.distanceTo(new THREE.Vector3(-3.6, 1.0, 13))
+          : Infinity;
+        const doorDistance = player.distanceTo(new THREE.Vector3(0, 1.5, -24.5));
+        return keyDistance < doorDistance
+          ? { type: "key", distance: keyDistance }
+          : { type: "door", distance: doorDistance };
+      }
+
+      function interact() {
+        if (!started || won || lost) return;
+        const target = nearestInteractable();
+
+        if (target.distance > 2.5) {
+          showMessage("Rien à portée de main.");
+          return;
+        }
+
+        if (target.type === "key" && !hasKey) {
+          hasKey = true;
+          key.visible = false;
+          monster.visible = true;
+          objective.textContent = "OBJECTIF : Rejoindre la porte de sortie.";
+          showMessage("Tu as récupéré la clé. Quelque chose s'est réveillé...");
+          return;
+        }
+
+        if (target.type === "door") {
+          if (!hasKey) {
+            showMessage("La porte est verrouillée. Il faut trouver la clé.");
+          } else {
+            won = true;
+            exitDoor.rotation.y = -Math.PI / 2;
+            overlay.style.display = "flex";
+            document.querySelector("#subtitle").textContent = "CHAPITRE 1 — FIN DU PROTOTYPE";
+            document.querySelector("#introText").textContent =
+              "La porte s'ouvre. Dans le silence, ton téléphone vibre : « Tu n'es jamais vraiment sorti. »";
+            playButton.textContent = "RECOMMENCER";
+            document.exitPointerLock?.();
+          }
+        }
+      }
+
+      playButton.addEventListener("click", () => {
+        if (won || lost) {
+          localStorage.removeItem("0317-prototype");
+          location.reload();
+          return;
+        }
+        overlay.style.display = "none";
+        started = true;
+        renderer.domElement.requestPointerLock?.();
+      });
+
+      document.addEventListener("keydown", event => {
+        const keyName = event.key.toLowerCase();
+        keys[keyName] = true;
+
+        if (keyName === "f" && started && !won && !lost) {
+          lampOn = !lampOn;
+          flashlight.intensity = lampOn && battery > 0 ? 5 : 0;
+          showMessage(lampOn ? "Lampe allumée." : "Lampe éteinte.", 1000);
+        }
+        if (keyName === "e") interact();
+      });
+
+      document.addEventListener("keyup", event => {
+        keys[event.key.toLowerCase()] = false;
+      });
+
+      document.addEventListener("mousemove", event => {
+        if (document.pointerLockElement !== renderer.domElement || !started) return;
+        yaw -= event.movementX * 0.002;
+        pitch -= event.movementY * 0.002;
+        pitch = Math.max(-1.15, Math.min(1.15, pitch));
+        camera.rotation.set(pitch, yaw, 0, "YXZ");
+      });
+
+      function endGame(isLost) {
+        if (won || lost) return;
+        lost = isLost;
+        started = false;
+        overlay.style.display = "flex";
+        document.querySelector("#subtitle").textContent = "03:17 — TU N'ES PAS SEUL";
+        document.querySelector("#introText").textContent =
+          "La silhouette t'a rattrapé. Le couloir retombe dans le silence.";
+        playButton.textContent = "RECOMMENCER";
+        document.exitPointerLock?.();
+      }
+
+      let last = performance.now();
+
+      function animate(now) {
+        requestAnimationFrame(animate);
+        const dt = Math.min((now - last) / 1000, 0.05);
+        last = now;
+
+        if (started && !won && !lost) {
+          elapsed += dt;
+
+          const direction = new THREE.Vector3();
+          if (keys.w || keys.z || keys.arrowup) direction.z -= 1;
+          if (keys.s || keys.arrowdown) direction.z += 1;
+          if (keys.a || keys.q || keys.arrowleft) direction.x -= 1;
+          if (keys.d || keys.arrowright) direction.x += 1;
+          direction.normalize();
+
+          const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+          const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+          const speed = 3.1;
+
+          camera.position.addScaledVector(forward, direction.z * speed * dt);
+          camera.position.addScaledVector(right, direction.x * speed * dt);
+          camera.position.x = THREE.MathUtils.clamp(camera.position.x, -5.25, 5.25);
+          camera.position.z = THREE.MathUtils.clamp(camera.position.z, -23.8, 23.5);
+          camera.position.y = 1.65 + Math.sin(elapsed * 7) * 0.012;
+
+          // Petit mouvement de la clé et lumière vacillante
+          if (key.visible) {
+            key.rotation.y += dt * 1.2;
+            key.position.y = 0.95 + Math.sin(elapsed * 2) * 0.08;
+          }
+          emergencyLight.intensity = 1.7 + Math.sin(elapsed * 8) * 0.45;
+          lamps.forEach((lamp, index) => {
+            lamp.intensity = 0.75 + Math.sin(elapsed * (2 + index) + index) * 0.12;
+          });
+
+          // Batterie : la lampe s'éteint progressivement, mais le décor reste visible.
+          if (lampOn && battery > 0) {
+            battery = Math.max(0, battery - dt * 0.7);
+            flashlight.intensity = battery < 15
+              ? (Math.random() > 0.08 ? 3.5 : 0.4)
+              : 5;
+          }
+          if (battery <= 0) flashlight.intensity = 0;
+          batteryLabel.textContent = `LAMPE : ${Math.ceil(battery)}%`;
+
+          // Le monstre se rapproche après la récupération de la clé.
+          if (monster.visible) {
+            const target = camera.position.clone();
+            target.y = 0;
+            monster.position.lerp(target, Math.min(1, dt * 0.095));
+            monster.lookAt(camera.position.x, 0, camera.position.z);
+            const distance = monster.position.distanceTo(camera.position);
+            if (distance < 1.35) endGame(true);
+          }
+
+          // Sauvegarde légère de la progression
+          try {
+            localStorage.setItem("0317-prototype", JSON.stringify({
+              x: camera.position.x,
+              z: camera.position.z,
+              hasKey
+            }));
+          } catch (_) {}
+        }
+
+        renderer.render(scene, camera);
+      }
+
+      requestAnimationFrame(animate);
+
+      window.addEventListener("resize", () => {
+        camera.aspect = innerWidth / innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(innerWidth, innerHeight);
+      });
+    })();
+  </script>
+</body>
+</html>
